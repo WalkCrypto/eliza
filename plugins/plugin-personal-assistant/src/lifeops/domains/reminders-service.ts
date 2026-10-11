@@ -3396,7 +3396,10 @@ export class RemindersDomain {
   }): Promise<Record<string, unknown>> {
     try {
       const [activityProfile, policies] = await Promise.all([
-        this.readReminderActivityProfileSnapshot({ now: args.now }),
+        this.readReminderActivityProfileSnapshot({
+          now: args.now,
+          timezone: await resolveOwnerTimeZone(this.ctx.runtime, args.now),
+        }),
         this.ctx.repository.listChannelPolicies(this.ctx.agentId()),
       ]);
       const candidates = await this.resolveOwnerContactRouteCandidates({
@@ -5607,8 +5610,10 @@ export class RemindersDomain {
       createdAt: new Date().toISOString(),
     });
 
+    const refreshedAt = new Date(occurredAt);
     const refreshed = await this.refreshEffectiveScheduleState({
-      now: new Date(occurredAt),
+      timezone: await resolveOwnerTimeZone(this.ctx.runtime, refreshedAt),
+      now: refreshedAt,
     });
     return {
       accepted: true,
@@ -6372,10 +6377,15 @@ export class RemindersDomain {
       "circadian_state",
       circadianFallback,
       async () => {
+        // Same owner-zone anchor as the reminder pass (#13509): the sleep
+        // cycle check-ins read `currentSchedule.timezone`.
+        const timezone = await resolveOwnerTimeZone(this.ctx.runtime, now);
         const previousSchedule = await this.readEffectiveScheduleState({
+          timezone,
           now,
         });
         const refreshedSchedule = await this.refreshEffectiveScheduleState({
+          timezone,
           now,
         });
         if (refreshedSchedule !== null) {
