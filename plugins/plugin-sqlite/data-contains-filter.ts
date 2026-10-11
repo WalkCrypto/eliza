@@ -100,6 +100,87 @@ export function dataContainsFilter(
   });
 }
 
+/**
+ * One array element under jsonb containment: an object element matches by
+ * subset, an array element matches when some actual element contains it
+ * (recursively), and a scalar element matches by equality.
+ */
+function arrayItemMatches(
+  actualItem: unknown,
+  expectedItem: unknown,
+  depth: number,
+  ctx: WalkContext,
+): boolean {
+  if (isPlainObject(expectedItem)) {
+    return dataContainsFilterInner(actualItem, expectedItem, depth, ctx, true);
+  }
+  if (Array.isArray(expectedItem)) {
+    return (
+      Array.isArray(actualItem) &&
+      arrayContainsArray(actualItem, expectedItem, depth, ctx)
+    );
+  }
+  return actualItem === expectedItem;
+}
+
+/**
+ * Jsonb array containment: every expected element must be contained in some
+ * actual element. This is the array branch of `dataContainsFilterInner` as a
+ * reusable search, so an element that is itself an array gets the same
+ * containment search instead of a reference comparison — stored JSON is
+ * decoded into new objects, so a reference comparison can never match and a
+ * filter with a nested array element matched no stored data at all.
+ */
+function arrayContainsArray(
+  actual: unknown[],
+  expected: unknown[],
+  depth: number,
+  ctx: WalkContext,
+): boolean {
+  if (depth > MAX_INMEMORY_FILTER_DEPTH) {
+    failUnbounded({ depth, max: MAX_INMEMORY_FILTER_DEPTH });
+  }
+  const expectedLength = arrayLength(expected, "filter");
+  const actualLength = arrayLength(actual, "value");
+  reserve(ctx, expectedLength + actualLength);
+  for (
+    let expectedIndex = 0;
+    expectedIndex < expectedLength;
+    expectedIndex += 1
+  ) {
+    const expectedDescriptor = Object.getOwnPropertyDescriptor(
+      expected,
+      String(expectedIndex),
+    );
+    if (!expectedDescriptor) continue;
+    if (!("value" in expectedDescriptor)) {
+      failUnbounded({ accessor: true, side: "filter" });
+    }
+    const expectedItem = expectedDescriptor.value;
+    let found = false;
+    for (let actualIndex = 0; actualIndex < actualLength; actualIndex += 1) {
+      const actualDescriptor = Object.getOwnPropertyDescriptor(
+        actual,
+        String(actualIndex),
+      );
+      if (!actualDescriptor) continue;
+      if (!("value" in actualDescriptor)) {
+        failUnbounded({ accessor: true, side: "value" });
+      }
+      // Containment is a Cartesian search, so input-slot accounting alone
+      // does not bound the number of comparisons.
+      reserve(ctx, 1);
+      const actualItem = actualDescriptor.value;
+      if (arrayItemMatches(actualItem, expectedItem, depth + 1, ctx)) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) return false;
+  }
+  return true;
+}
+
 function dataContainsFilterInner(
   value: unknown,
   filter: Record<string, unknown>,
@@ -130,57 +211,7 @@ function dataContainsFilterInner(
 
       if (Array.isArray(expected)) {
         if (!Array.isArray(actual)) return false;
-        const expectedLength = arrayLength(expected, "filter");
-        const actualLength = arrayLength(actual, "value");
-        reserve(ctx, expectedLength + actualLength);
-        for (
-          let expectedIndex = 0;
-          expectedIndex < expectedLength;
-          expectedIndex += 1
-        ) {
-          const expectedDescriptor = Object.getOwnPropertyDescriptor(
-            expected,
-            String(expectedIndex),
-          );
-          if (!expectedDescriptor) continue;
-          if (!("value" in expectedDescriptor)) {
-            failUnbounded({ accessor: true, side: "filter" });
-          }
-          const expectedItem = expectedDescriptor.value;
-          let found = false;
-          for (
-            let actualIndex = 0;
-            actualIndex < actualLength;
-            actualIndex += 1
-          ) {
-            const actualDescriptor = Object.getOwnPropertyDescriptor(
-              actual,
-              String(actualIndex),
-            );
-            if (!actualDescriptor) continue;
-            if (!("value" in actualDescriptor)) {
-              failUnbounded({ accessor: true, side: "value" });
-            }
-            // Containment is a Cartesian search, so input-slot accounting alone
-            // does not bound the number of comparisons.
-            reserve(ctx, 1);
-            const actualItem = actualDescriptor.value;
-            const matched = isPlainObject(expectedItem)
-              ? dataContainsFilterInner(
-                  actualItem,
-                  expectedItem,
-                  depth + 1,
-                  ctx,
-                  true,
-                )
-              : actualItem === expectedItem;
-            if (matched) {
-              found = true;
-              break;
-            }
-          }
-          if (!found) return false;
-        }
+        if (!arrayContainsArray(actual, expected, depth, ctx)) return false;
         continue;
       }
 
