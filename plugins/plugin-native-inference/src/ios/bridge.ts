@@ -43,6 +43,7 @@ import {
 import {
   buildBrandEnvAliases,
   getBootConfig,
+  isCloudInferenceSelectedInConfig,
   readAliasedEnv,
   setBootConfig,
 } from "@elizaos/host/protocol";
@@ -164,6 +165,12 @@ export interface IosBridgeBackend {
    */
   runtime: IAgentRuntime;
   dispatchRoute: DispatchRoute;
+  /**
+   * The agent's own Cloud key check and 409 text (from `@elizaos/agent`, shared
+   * with the agent `POST /api/first-run` route). Returns the rejection text when
+   * the agent holds no Eliza Cloud API key, else null.
+   */
+  cloudInferenceRejection: () => string | null;
   conversations: Map<string, IosConversation>;
   close: () => Promise<void>;
 }
@@ -188,6 +195,7 @@ type DispatchRoute = (args: {
 type AgentModule = {
   bootElizaRuntime: () => Promise<IAgentRuntime>;
   dispatchRoute: DispatchRoute;
+  cloudInferenceRejection: () => string | null;
 };
 const IOS_BRIDGE_DEFAULT_ENV_PREFIX = "MILADY";
 const IOS_BRIDGE_BRAND_ENV_SUFFIXES = [
@@ -197,8 +205,21 @@ const IOS_BRIDGE_BRAND_ENV_SUFFIXES = [
   "API_PORT",
 ] as const;
 async function loadAgentModule(): Promise<AgentModule> {
-  const { bootElizaRuntime, dispatchRoute } = await import("@elizaos/agent");
-  return { bootElizaRuntime, dispatchRoute };
+  const {
+    bootElizaRuntime,
+    dispatchRoute,
+    loadElizaConfig,
+    hasCloudApiKeyForInference,
+    CLOUD_INFERENCE_NO_API_KEY_ERROR,
+  } = await import("@elizaos/agent");
+  return {
+    bootElizaRuntime,
+    dispatchRoute,
+    cloudInferenceRejection: () =>
+      hasCloudApiKeyForInference(loadElizaConfig())
+        ? null
+        : CLOUD_INFERENCE_NO_API_KEY_ERROR,
+  };
 }
 interface IosBridgeHost {
   backendPromise: Promise<IosBridgeBackend> | null;
@@ -586,7 +607,8 @@ async function startIosBridgeBackend(): Promise<IosBridgeBackend> {
   process.env.ELIZA_DISABLE_AGENT_WALLET_BOOTSTRAP =
     process.env.ELIZA_DISABLE_AGENT_WALLET_BOOTSTRAP || "1";
   process.env.LOG_LEVEL = process.env.LOG_LEVEL || "error";
-  const { bootElizaRuntime, dispatchRoute } = await loadAgentModule();
+  const { bootElizaRuntime, dispatchRoute, cloudInferenceRejection } =
+    await loadAgentModule();
   const runtime = await bootRuntimeWithRetry(bootElizaRuntime);
   installIosNativeLlamaHandlers(runtime);
   installKeepAwakeBridge();
@@ -595,6 +617,7 @@ async function startIosBridgeBackend(): Promise<IosBridgeBackend> {
   return {
     runtime,
     dispatchRoute,
+    cloudInferenceRejection,
     conversations: new Map(),
     close: async () => {
       // error-policy:J6 best-effort teardown — the backend is shutting down; a
@@ -4458,6 +4481,19 @@ export async function handleDirectCoreRoute(
     // POST /api/first-run") and on-device onboarding can never finish, leaving
     // the user stuck on "Starting local agent". Companion to the GET
     // /api/first-run/status route above.
+    //
+    // The body is not applied here, so a Cloud inference selection only works
+    // when the agent already holds its own Cloud API key. The renderer's Cloud
+    // session never reaches this process; acknowledging that submit would
+    // report a finished setup whose first chat has no text provider.
+    if (
+      isCloudInferenceSelectedInConfig({
+        serviceRouting: parseRequestBody(payload).serviceRouting,
+      })
+    ) {
+      const rejection = backend.cloudInferenceRejection();
+      if (rejection) return jsonResponse(409, { error: rejection });
+    }
     return jsonResponse(200, {
       ok: true,
       complete: true,
