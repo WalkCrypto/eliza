@@ -1062,13 +1062,31 @@ export function createDesktopBrowserWorkspaceUtilityScript(
   };
   const buildSelector = (element) => {
     if (!element || !element.tagName) return null;
+    const tag = element.tagName.toLowerCase();
+    if (element.id) {
+      const escapedId =
+        typeof CSS !== "undefined" && typeof CSS.escape === "function"
+          ? CSS.escape(element.id)
+          : String(element.id).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+      return "#" + escapedId;
+    }
     const testId = element.getAttribute && element.getAttribute("data-testid");
     if (testId) return '[data-testid="' + testId + '"]';
     const name = element.getAttribute && element.getAttribute("name");
-    if (name) return element.tagName.toLowerCase() + '[name="' + name + '"]';
+    if (name) return tag + '[name="' + name + '"]';
     const title = element.getAttribute && element.getAttribute("title");
-    if (title) return element.tagName.toLowerCase() + '[title="' + title + '"]';
-    return element.tagName.toLowerCase();
+    if (title) return tag + '[title="' + title + '"]';
+    const parent = element.parentElement;
+    if (!parent) return tag;
+    let index = 1;
+    const siblings = parent.children;
+    for (let i = 0; i < siblings.length; i += 1) {
+      const sibling = siblings[i];
+      if (!sibling || sibling.tagName !== element.tagName) continue;
+      if (sibling === element) break;
+      index += 1;
+    }
+    return tag + ":nth-of-type(" + index + ")";
   };
   const activeDocument = (() => {
     if (!state.currentFrame) return document;
