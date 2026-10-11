@@ -243,6 +243,7 @@ export function checkinTriggersForGoal(
         return [];
       }
       const plans: GoalCheckinPlan[] = [];
+      const seenKeys = new Set<string>();
       for (const slot of slots) {
         const record =
           slot && typeof slot === "object" && !Array.isArray(slot)
@@ -264,6 +265,18 @@ export function checkinTriggersForGoal(
           );
           continue;
         }
+        // The slot key is the slot's identity (it is part of the check-in
+        // idempotency key), so a second slot reusing a key cannot own its
+        // own task: it would collide with the first slot's task on the
+        // spine's unique idempotency key. Skip it like any unusable slot.
+        if (seenKeys.has(key)) {
+          warnCadence(
+            goal.id,
+            `duplicate times_per_day slot key ${JSON.stringify(key)}`,
+          );
+          continue;
+        }
+        seenKeys.add(key);
         const hour = Math.floor(minuteOfDay / 60);
         const minute = minuteOfDay % 60;
         plans.push({
