@@ -46,6 +46,36 @@ export function eventFilterMatches(filter: unknown, payload: unknown): boolean {
   return subsetDeepEquals(filter, payload);
 }
 
+function exactDeepEquals(expected: unknown, actual: unknown): boolean {
+  if (expected === actual) return true;
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(actual) || actual.length !== expected.length) {
+      return false;
+    }
+    return expected.every((item, index) =>
+      exactDeepEquals(item, actual[index]),
+    );
+  }
+  if (
+    typeof expected === "object" &&
+    expected !== null &&
+    typeof actual === "object" &&
+    actual !== null &&
+    !Array.isArray(actual)
+  ) {
+    const expectedEntries = Object.entries(expected as Record<string, unknown>);
+    if (expectedEntries.length !== Object.keys(actual).length) {
+      return false;
+    }
+    return expectedEntries.every(
+      ([key, value]) =>
+        Object.hasOwn(actual, key) &&
+        exactDeepEquals(value, (actual as Record<string, unknown>)[key]),
+    );
+  }
+  return false;
+}
+
 function subsetDeepEquals(expected: unknown, actual: unknown): boolean {
   if (expected === actual) return true;
   if (Array.isArray(expected)) {
@@ -53,7 +83,7 @@ function subsetDeepEquals(expected: unknown, actual: unknown): boolean {
       return false;
     }
     return expected.every((item, index) =>
-      subsetDeepEquals(item, actual[index]),
+      exactDeepEquals(item, actual[index]),
     );
   }
   if (
