@@ -768,6 +768,71 @@ describe("CalendarService guarded ICS sources (real PGlite)", {
     ]);
   });
 
+  it("places each occurrence of a recurring all-day series on the owner's local day", async () => {
+    const source = await createSource();
+    await syncBody(
+      source.id,
+      calendar(
+        [
+          "BEGIN:VEVENT",
+          "UID:trash",
+          "DTSTAMP:20260601T000000Z",
+          "DTSTART;VALUE=DATE:20260602",
+          "DTEND;VALUE=DATE:20260603",
+          "RRULE:FREQ=WEEKLY",
+          "SUMMARY:Trash day",
+          "END:VEVENT",
+          "BEGIN:VEVENT",
+          "UID:trash",
+          "DTSTAMP:20260601T000000Z",
+          "RECURRENCE-ID;VALUE=DATE:20260616",
+          "DTSTART:20260619T100000Z",
+          "DTEND:20260619T110000Z",
+          "SUMMARY:Trash pickup (moved)",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+    const readFeed = (timeZone: string, timeMin: string, timeMax: string) =>
+      service.getCalendarFeed(
+        new URL("http://internal.test/api/calendar"),
+        { grantId: source.id, timeZone, timeMin, timeMax },
+        new Date(),
+      );
+
+    // 00:00 to 06:00 on June 9 in Tokyo. The June 9 occurrence starts at
+    // 2026-06-09T00:00Z, after this window ends.
+    const tokyoMorning = await readFeed(
+      "Asia/Tokyo",
+      "2026-06-08T15:00:00.000Z",
+      "2026-06-08T21:00:00.000Z",
+    );
+    expect(tokyoMorning.state).toBe("complete");
+    expect(
+      tokyoMorning.events.map((event) => [event.title, event.startAt]),
+    ).toEqual([["Trash day", "2026-06-09T00:00:00.000Z"]]);
+
+    // June 8 in Los Angeles. The June 9 occurrence overlaps its evening in
+    // UTC but is on the next local day.
+    const losAngelesMonday = await readFeed(
+      "America/Los_Angeles",
+      "2026-06-08T07:00:00.000Z",
+      "2026-06-09T07:00:00.000Z",
+    );
+    expect(losAngelesMonday.state).toBe("complete");
+    expect(losAngelesMonday.events).toEqual([]);
+
+    // 00:00 to 06:00 on June 16 in Tokyo. A timed override replaced the
+    // June 16 occurrence, and its recurrence instant is after this window.
+    const tokyoMovedMorning = await readFeed(
+      "Asia/Tokyo",
+      "2026-06-15T15:00:00.000Z",
+      "2026-06-15T21:00:00.000Z",
+    );
+    expect(tokyoMovedMorning.state).toBe("complete");
+    expect(tokyoMovedMorning.events).toEqual([]);
+  });
+
   it("expands an established daily series after more than 1000 prior occurrences", async () => {
     const source = await createSource();
     await syncBody(
@@ -1014,6 +1079,8 @@ describe("CalendarService guarded ICS sources (real PGlite)", {
       sourceId: source.id,
       timeMin: "2026-10-12T00:00:00.000Z",
       timeMax: "2026-10-13T00:00:00.000Z",
+      allDayTimeMin: "2026-10-10T21:00:00.000Z",
+      allDayTimeMax: "2026-10-14T03:00:00.000Z",
     });
 
     expect(rows.map((event) => event.title)).toEqual(["Bounded series"]);
