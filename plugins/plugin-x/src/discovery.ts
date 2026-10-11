@@ -227,7 +227,10 @@ export class TwitterDiscoveryClient {
       ) {
         topics = character.topics;
       } else if (character.bio) {
-        topics = this.extractTopicsFromBio(character.bio);
+        const bioTopics = this.extractTopicsFromBio(character.bio);
+        if (bioTopics.length > 0) {
+          topics = bioTopics;
+        }
       }
     } else {
       logger.warn(
