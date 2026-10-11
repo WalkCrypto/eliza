@@ -11,6 +11,9 @@ export interface LocalNotesQuery {
   candidates: NoteRecord[];
   explanation: string;
 }
+function normalizeTitleSearch(value: string): string {
+  return value.normalize("NFKC").trim().toLowerCase().replace(/\s+/gu, " ");
+}
 /** Unknown legacy chronology remains unknown. Candidate records stay on the owning client. */
 export function queryLocalNotes(
   records: NoteRecord[],
@@ -23,9 +26,9 @@ export function queryLocalNotes(
       explanation: "No saved notes were found.",
     };
   if (query.kind === "title") {
-    const text = query.text.normalize("NFKC").trim().toLowerCase();
+    const text = normalizeTitleSearch(query.text);
     const candidates = records.filter((note) =>
-      note.title.normalize("NFKC").toLowerCase().includes(text),
+      normalizeTitleSearch(note.title).includes(text),
     );
     if (candidates.length === 0)
       return {

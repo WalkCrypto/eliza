@@ -51,10 +51,10 @@ type NoteLookupSelector = "title" | "query";
 
 function normalizedLookup(value: string): string {
   return value
-    .normalize("NFC")
+    .normalize("NFKC")
     .trim()
     .toLowerCase()
-    .normalize("NFC")
+    .normalize("NFKC")
     .replace(/\s+/gu, " ");
 }
 
