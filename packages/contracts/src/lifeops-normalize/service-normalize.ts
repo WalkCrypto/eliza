@@ -17,7 +17,11 @@ import {
 } from "../lifeops/reminders.js";
 import { LIFEOPS_TIME_ZONE_ALIASES } from "../lifeops-constants/service-constants.js";
 import { LifeOpsServiceError } from "./service-error.js";
-import { isValidTimeZone, resolveDefaultTimeZone } from "./time-zone.js";
+import {
+  isUtcTimeZoneAlias,
+  isValidTimeZone,
+  resolveDefaultTimeZone,
+} from "./time-zone.js";
 /**
  * LifeOps normalize/validation primitives (runtime-level, pure).
  *
@@ -227,8 +231,11 @@ export function normalizeValidTimeZone(
   if (candidate.length === 0) {
     return fallback;
   }
-  const normalized =
-    LIFEOPS_TIME_ZONE_ALIASES[candidate.toLowerCase()] ?? candidate;
+  // UTC spellings ("Z", "UTC+00", "+00:00") are UTC, as in normalizeTimeZone;
+  // Intl rejects several of them, so map them before the validity check.
+  const normalized = isUtcTimeZoneAlias(candidate)
+    ? "UTC"
+    : (LIFEOPS_TIME_ZONE_ALIASES[candidate.toLowerCase()] ?? candidate);
   if (!isValidTimeZone(normalized)) {
     fail(400, `${field} must be a valid IANA time zone`);
   }

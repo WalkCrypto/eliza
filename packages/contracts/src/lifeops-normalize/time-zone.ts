@@ -36,9 +36,14 @@ export function isValidTimeZone(timeZone: string): boolean {
 const UTC_ALIAS_RE =
   /^(?:z|zulu|utc|gmt|etc\/utc|etc\/gmt|utc[+-]0{1,2}(?::?00)?|gmt[+-]0{1,2}(?::?00)?|[+-]00:?00)$/i;
 
+/** True when the value is one of the UTC spellings above and means `UTC`. */
+export function isUtcTimeZoneAlias(candidate: string): boolean {
+  return UTC_ALIAS_RE.test(candidate);
+}
+
 export function normalizeTimeZone(timeZone?: string | null): string {
   const candidate = typeof timeZone === "string" ? timeZone.trim() : "";
-  if (UTC_ALIAS_RE.test(candidate)) {
+  if (isUtcTimeZoneAlias(candidate)) {
     return "UTC";
   }
   if (candidate && isValidTimeZone(candidate)) {
