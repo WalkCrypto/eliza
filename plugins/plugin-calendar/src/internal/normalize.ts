@@ -121,6 +121,16 @@ function normalizeEnumValue<T extends string>(
   return text;
 }
 
+/**
+ * UTC spellings a model routinely emits as a time zone value. This is the
+ * same set that `normalizeTimeZone` in `@elizaos/contracts` maps to "UTC":
+ * a planner that reads a Zulu-suffixed datetime stamps `timeZone: "Z"`, and
+ * `Intl` rejects that value. These spellings are UTC, so map them to "UTC"
+ * here too instead of failing the whole calendar request.
+ */
+const UTC_TIME_ZONE_SPELLING_RE =
+  /^(?:z|zulu|utc|gmt|etc\/utc|etc\/gmt|utc[+-]0{1,2}(?::?00)?|gmt[+-]0{1,2}(?::?00)?|[+-]00:?00)$/i;
+
 export function normalizeValidTimeZone(
   value: unknown,
   field: string,
@@ -135,6 +145,9 @@ export function normalizeValidTimeZone(
   const candidate = value.trim();
   if (candidate.length === 0) {
     return fallback;
+  }
+  if (UTC_TIME_ZONE_SPELLING_RE.test(candidate)) {
+    return "UTC";
   }
   const normalized =
     CALENDAR_TIME_ZONE_ALIASES[candidate.toLowerCase()] ?? candidate;
