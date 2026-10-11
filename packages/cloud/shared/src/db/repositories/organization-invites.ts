@@ -129,26 +129,69 @@ export class OrganizationInvitesRepository {
   }
 
   /**
-   * Revokes an organization invite by setting status to "revoked".
+   * Updates an invite only while it is still pending. Returns undefined when a
+   * concurrent accept or revoke already changed it, so only one of them wins.
+   */
+  private async updatePending(
+    id: string,
+    data: Partial<NewOrganizationInvite>,
+  ): Promise<OrganizationInvite | undefined> {
+    const [updated] = await dbWrite
+      .update(organizationInvites)
+      .set({
+        ...data,
+        updated_at: new Date(),
+      })
+      .where(and(eq(organizationInvites.id, id), eq(organizationInvites.status, "pending")))
+      .returning();
+    return updated;
+  }
+
+  /**
+   * Revokes a pending organization invite by setting status to "revoked".
    */
   async revoke(id: string): Promise<OrganizationInvite | undefined> {
-    return await this.update(id, {
+    return await this.updatePending(id, {
       status: "revoked",
     });
   }
 
   /**
-   * Marks an invite as accepted by a user.
+   * Marks a pending invite as accepted by a user.
    */
   async markAsAccepted(
     id: string,
     acceptedByUserId: string,
   ): Promise<OrganizationInvite | undefined> {
-    return await this.update(id, {
+    return await this.updatePending(id, {
       status: "accepted",
       accepted_at: new Date(),
       accepted_by_user_id: acceptedByUserId,
     });
+  }
+
+  /** Releases this user's accepted claim when their membership write did not commit. */
+  async releaseAcceptance(
+    id: string,
+    acceptedByUserId: string,
+  ): Promise<OrganizationInvite | undefined> {
+    const [updated] = await dbWrite
+      .update(organizationInvites)
+      .set({
+        status: "pending",
+        accepted_at: null,
+        accepted_by_user_id: null,
+        updated_at: new Date(),
+      })
+      .where(
+        and(
+          eq(organizationInvites.id, id),
+          eq(organizationInvites.status, "accepted"),
+          eq(organizationInvites.accepted_by_user_id, acceptedByUserId),
+        ),
+      )
+      .returning();
+    return updated;
   }
 
   /**
