@@ -512,6 +512,7 @@ export function pageCommand(command, snapshotId, validateOnly = false) {
     const person = (event) => {
       if (event.isTrusted) personAt = performance.now();
     };
+    const personForms = new WeakSet();
     window.addEventListener("pointerdown", person, options);
     window.addEventListener("keydown", person, options);
     const activate = (event) => {
@@ -522,16 +523,49 @@ export function pageCommand(command, snapshotId, validateOnly = false) {
       );
       if (control?.matches(':disabled,[aria-disabled="true"]')) return;
       const keyboard = event.type === "keydown";
+      const fields =
+        "textarea,select,input:not([type=submit]):not([type=button]):not([type=reset])";
+      const field = target.isContentEditable || target.matches(fields);
+      // A custom control (no button element or button role) can send its form
+      // from script seconds later. Her press on such a control makes that form
+      // hers for the rest of this watch. Only an element that presents itself
+      // as a control counts: a widget role, a tabindex, an inline click
+      // handler, or a pointer cursor on the pressed element. A press on the
+      // form's own padding, on plain text, on a field, on a label, or on an
+      // element that wraps a field is a stray tap and releases nothing.
+      const form = target.closest("form");
+      if (
+        !keyboard &&
+        form &&
+        target !== form &&
+        !field &&
+        !target.closest("label")
+      ) {
+        for (
+          let item = target;
+          item && item !== form;
+          item = item.parentElement
+        ) {
+          if (item.querySelector(fields) || item.querySelector("label")) break;
+          if (
+            item === control ||
+            item.matches(
+              '[tabindex],[onclick],[role="menuitem"],[role="option"],[role="switch"],[role="checkbox"],[role="radio"],[role="tab"]',
+            ) ||
+            (item === target && getComputedStyle(item).cursor === "pointer")
+          ) {
+            if (!item.matches('[aria-disabled="true"]')) personForms.add(form);
+            break;
+          }
+        }
+      }
       const enterForm =
         event.key === "Enter" &&
         target instanceof HTMLInputElement &&
         target.form;
       const controlKey =
         control &&
-        !target.isContentEditable &&
-        !target.matches(
-          "textarea,select,input:not([type=submit]):not([type=button]):not([type=reset])",
-        ) &&
+        !field &&
         (event.key === "Enter" ||
           (event.key === " " && !control.matches('a[href],[role="link"]')));
       if (keyboard ? !controlKey && !enterForm : !control) return;
@@ -541,7 +575,9 @@ export function pageCommand(command, snapshotId, validateOnly = false) {
     window.addEventListener("keydown", activate, options);
     window.addEventListener(
       "submit",
-      (event) => report("submit", event),
+      (event) => {
+        if (!personForms.has(event.target)) report("submit", event);
+      },
       options,
     );
     globalThis.navigation?.addEventListener(
@@ -549,7 +585,10 @@ export function pageCommand(command, snapshotId, validateOnly = false) {
       (event) => {
         if (
           event.userInitiated ||
-          (anchor && !event.formData && event.destination.url === anchor.href)
+          (anchor &&
+            !event.formData &&
+            event.destination.url === anchor.href) ||
+          personForms.has(event.sourceElement?.form ?? event.sourceElement)
         )
           return;
         if (event.destination.sameDocument) {
