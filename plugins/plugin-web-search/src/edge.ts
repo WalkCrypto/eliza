@@ -170,7 +170,7 @@ export function webSearchSourceEvidence(text: string): {
         // claim source-bound evidence for current factual assertions.
     }
     for (const prose of decodedStrings(text)) {
-        for (const match of prose.matchAll(/https?:\/\/[^\s<>"']+/gu)) {
+        for (const match of prose.matchAll(/https?:\/\/[^\s<>"']+/giu)) {
             const exact = publicHttpUrl(match[0]);
             if (exact && sourceUrls.has(exact)) continue;
             const parsed = publicHttpUrl(stripTrailingProsePunctuation(match[0]));
